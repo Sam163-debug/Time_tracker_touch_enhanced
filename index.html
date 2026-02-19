@@ -556,12 +556,9 @@
                     </button>
                 </div>
             </div>
-            <div class="sync-actions" id="syncActions" style="display: none; margin-top: 8px; display: flex; gap: 8px;">
-                <button class="sync-btn" onclick="manualSync()" id="syncNowBtn" style="flex: 1;">
-                    ⬆️ Sync Now
-                </button>
-                <button class="sync-btn" onclick="pullFromGitHub()" style="flex: 1;">
-                    ⬇️ Pull from GitHub
+            <div class="sync-actions" id="syncActions" style="display: none; margin-top: 8px;">
+                <button class="sync-btn" onclick="biDirectionalSync()" id="syncBtn" style="width: 100%; padding: 12px; font-size: 1em;">
+                    🔄 Sync Data
                 </button>
             </div>
             <div id="syncLastTime" style="font-size: 0.8em; color: #64748b; margin-top: 6px;"></div>
@@ -732,7 +729,6 @@
         let githubSync = null;
         let autoSyncEnabled = false;
         let autoSyncInterval = null;
-        let pendingConflictData = null;
         
         function initGitHubSync() {
             githubSync = new GitHubSync();
@@ -751,7 +747,7 @@
             
             if (autoSyncEnabled) {
                 startAutoSync();
-                showToast('✅ Auto-sync enabled (every 3 minutes)');
+                showToast('✅ Auto-sync enabled (every 3 min)');
             } else {
                 stopAutoSync();
                 showToast('⏸️ Auto-sync disabled');
@@ -761,20 +757,13 @@
         function startAutoSync() {
             if (autoSyncInterval) clearInterval(autoSyncInterval);
             
+            // Initial sync
+            setTimeout(() => biDirectionalSync(true), 2000);
+            
             // Sync every 3 minutes
             autoSyncInterval = setInterval(async () => {
-                if (githubSync && githubSync.isConfigured()) {
-                    try {
-                        await githubSync.push(events, weekNotes, typeColors);
-                        updateSyncTime();
-                        if (document.getElementById('syncNotifications').checked) {
-                            showToast('☁️ Auto-synced');
-                        }
-                    } catch (error) {
-                        console.error('Auto-sync failed:', error);
-                    }
-                }
-            }, 3 * 60 * 1000); // 3 minutes
+                await biDirectionalSync(true);
+            }, 3 * 60 * 1000);
         }
         
         function stopAutoSync() {
@@ -785,6 +774,7 @@
         }
         
         function showToast(message, duration = 2000) {
+            if (!document.getElementById('syncNotifications')?.checked) return;
             const toast = document.getElementById('syncToast');
             toast.textContent = message;
             toast.classList.add('show');
@@ -798,33 +788,24 @@
                     localStorage.setItem('github_token', token);
                     document.getElementById('syncStatus').textContent = 'Connected ✓';
                     document.getElementById('syncStatus').style.color = '#10b981';
-                    document.getElementById('syncActions').style.display = 'flex';
+                    document.getElementById('syncActions').style.display = 'block';
                     document.getElementById('syncSetupBtn').textContent = '⚙️ Settings';
-                    updateSyncTime();
                     
                     // Start auto-sync if enabled
                     if (autoSyncEnabled) {
                         startAutoSync();
                     }
                     
-                    // Try to pull data on first connect
-                    const remoteData = await githubSync.pull();
-                    if (remoteData.events.length > 0 || Object.keys(remoteData.weekNotes).length > 0) {
-                        // Check for conflicts
-                        if (events.length > 0 || Object.keys(weekNotes).length > 0) {
-                            showConflictModal(remoteData);
-                        } else {
-                            // No local data, safe to use remote
-                            applyRemoteData(remoteData, 'replace');
-                        }
-                    }
+                    // Do initial sync
+                    await biDirectionalSync(true);
                 } else {
                     throw new Error('Failed to initialize sync');
                 }
             } catch (error) {
-                alert('Sync setup failed: ' + error.message);
+                console.error('Sync setup error:', error);
                 document.getElementById('syncStatus').textContent = 'Error';
                 document.getElementById('syncStatus').style.color = '#ef4444';
+                alert('Sync setup failed: ' + error.message);
             }
         }
         
@@ -840,115 +821,76 @@
                 return;
             }
             
+            if (!token.startsWith('ghp_') && !token.startsWith('github_pat_')) {
+                alert('Invalid token format. Token should start with "ghp_" or "github_pat_"');
+                return;
+            }
+            
             document.getElementById('syncStatus').textContent = 'Connecting...';
             await setupSyncWithToken(token);
             toggleSyncSetup();
         }
         
-        async function manualSync() {
+        // Bi-directional sync - merges local and remote automatically
+        async function biDirectionalSync(isAuto = false) {
             if (!githubSync || !githubSync.isConfigured()) {
-                alert('Sync not configured. Please set up GitHub sync first.');
-                return;
-            }
-            
-            const btn = document.getElementById('syncNowBtn');
-            btn.disabled = true;
-            btn.textContent = '⬆️ Syncing...';
-            
-            try {
-                await githubSync.push(events, weekNotes, typeColors);
-                updateSyncTime();
-                btn.textContent = '⬆️ Synced ✓';
-                if (document.getElementById('syncNotifications').checked) {
-                    showToast('✅ Synced to GitHub');
+                if (!isAuto) {
+                    alert('Sync not configured. Please set up GitHub sync first.');
                 }
-                setTimeout(() => { btn.textContent = '⬆️ Sync Now'; btn.disabled = false; }, 2000);
-            } catch (error) {
-                alert('Sync failed: ' + error.message);
-                btn.textContent = '⬆️ Sync Failed';
-                btn.disabled = false;
-            }
-        }
-        
-        async function pullFromGitHub() {
-            if (!githubSync || !githubSync.isConfigured()) {
-                alert('Sync not configured. Please set up GitHub sync first.');
                 return;
             }
             
+            const btn = document.getElementById('syncBtn');
+            const originalText = btn?.textContent;
+            if (btn) {
+                btn.disabled = true;
+                btn.textContent = '🔄 Syncing...';
+            }
+            
             try {
-                const remoteData = await githubSync.pull();
+                // Smart bi-directional sync
+                const mergedData = await githubSync.sync(events, weekNotes, typeColors);
                 
-                // Check for conflicts
-                if (events.length > 0 || Object.keys(weekNotes).length > 0) {
-                    showConflictModal(remoteData);
-                } else {
-                    applyRemoteData(remoteData, 'replace');
-                    if (document.getElementById('syncNotifications').checked) {
-                        showToast('✅ Data pulled from GitHub');
-                    }
+                // Apply merged data
+                events = mergedData.events;
+                weekNotes = mergedData.weekNotes;
+                typeColors = {...defaultColors, ...mergedData.typeColors};
+                
+                // Save locally
+                await saveEvents();
+                await saveColors();
+                
+                // Update UI
+                renderView();
+                updateStats();
+                updateLegendColors();
+                loadWeekNotes();
+                updateSyncTime();
+                
+                if (btn) {
+                    btn.textContent = '✓ Synced';
+                    setTimeout(() => {
+                        btn.textContent = originalText;
+                        btn.disabled = false;
+                    }, 1500);
+                }
+                
+                if (!isAuto) {
+                    showToast('✅ Data synced!');
                 }
             } catch (error) {
-                alert('Pull failed: ' + error.message);
+                console.error('Sync error:', error);
+                if (btn) {
+                    btn.textContent = '✗ Sync Failed';
+                    setTimeout(() => {
+                        btn.textContent = originalText;
+                        btn.disabled = false;
+                    }, 2000);
+                }
+                if (!isAuto) {
+                    alert('Sync failed: ' + error.message);
+                }
             }
-        }
-        
-        function showConflictModal(remoteData) {
-            pendingConflictData = remoteData;
-            document.getElementById('conflictOverlay').classList.add('active');
-            document.getElementById('conflictModal').classList.add('active');
-        }
-        
-        function closeConflictModal() {
-            document.getElementById('conflictOverlay').classList.remove('active');
-            document.getElementById('conflictModal').classList.remove('active');
-            pendingConflictData = null;
-        }
-        
-        async function resolveConflict(strategy) {
-            if (!pendingConflictData) return;
-            
-            await applyRemoteData(pendingConflictData, strategy);
-            closeConflictModal();
-            
-            if (document.getElementById('syncNotifications').checked) {
-                const messages = {
-                    'github': '✅ Using GitHub data',
-                    'local': '✅ Keeping local data',
-                    'merge': '✅ Data merged successfully'
-                };
-                showToast(messages[strategy]);
-            }
-        }
-        
-        async function applyRemoteData(remoteData, strategy) {
-            if (strategy === 'github') {
-                // Replace with GitHub data
-                events = remoteData.events;
-                weekNotes = remoteData.weekNotes;
-                typeColors = {...defaultColors, ...remoteData.typeColors};
-            } else if (strategy === 'local') {
-                // Keep local, push to GitHub
-                await githubSync.push(events, weekNotes, typeColors);
-            } else if (strategy === 'merge') {
-                // Merge data
-                const eventIds = new Set(events.map(e => e.id));
-                remoteData.events.forEach(e => {
-                    if (!eventIds.has(e.id)) {
-                        events.push(e);
-                    }
-                });
-                weekNotes = {...weekNotes, ...remoteData.weekNotes};
-                typeColors = {...typeColors, ...remoteData.typeColors};
-            }
-            
-            await saveEvents();
-            await saveColors();
-            renderView();
-            updateStats();
-            updateLegendColors();
-            loadWeekNotes();
-            updateSyncTime();
         }
         
         function disconnectSync() {
@@ -969,23 +911,37 @@
             document.getElementById('autoSyncToggle').checked = false;
             autoSyncEnabled = false;
             localStorage.setItem('auto_sync_enabled', 'false');
-            toggleSyncSetup();
             showToast('🔌 Sync disconnected');
         }
         
         function updateSyncTime() {
             if (githubSync && githubSync.isConfigured()) {
                 const status = githubSync.getStatus();
-                document.getElementById('syncLastTime').textContent = 
-                    status.lastSync !== 'Never' ? `Last sync: ${status.lastSync}` : '';
+                const timeText = status.lastSync !== 'Never' ? `Last sync: ${status.lastSync}` : '';
+                document.getElementById('syncLastTime').textContent = timeText;
             }
         }
         
+        // Sync on page visibility change (when returning to app)
+        document.addEventListener('visibilitychange', async () => {
+            if (!document.hidden && githubSync && githubSync.isConfigured() && autoSyncEnabled) {
+                console.log('App became visible, syncing...');
+                await biDirectionalSync(true);
+            }
+        });
+        
         // Sync on page close if enabled
-        window.addEventListener('beforeunload', async (e) => {
+        window.addEventListener('beforeunload', async () => {
             if (githubSync && githubSync.isConfigured() && document.getElementById('syncOnClose')?.checked) {
                 try {
-                    await githubSync.push(events, weekNotes, typeColors);
+                    // Use sendBeacon for reliable sync on close
+                    const data = {
+                        events,
+                        weekNotes,
+                        typeColors,
+                        lastSync: new Date().toISOString()
+                    };
+                    await githubSync.pushData(events, weekNotes, typeColors);
                 } catch (error) {
                     console.error('Sync on close failed:', error);
                 }
