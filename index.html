@@ -1,0 +1,1874 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Time Tracker</title>
+
+    <!-- ── iPad / iOS PWA meta ───────────────────────────────────────── -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Time Tracker">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="theme-color" content="#667eea">
+    <link rel="manifest" href="./manifest.json">
+    <!-- Apple touch icons for every iPad size -->
+    <link rel="apple-touch-icon" sizes="152x152"  href="./icon-152.png">
+    <link rel="apple-touch-icon" sizes="167x167"  href="./icon-167.png">
+    <link rel="apple-touch-icon" sizes="180x180"  href="./icon-180.png">
+    <link rel="apple-touch-icon" sizes="192x192"  href="./icon-192.png">
+    <!-- Splash screens for common iPad sizes -->
+    <link rel="apple-touch-startup-image"
+          media="(device-width:768px)  and (device-height:1024px) and (-webkit-device-pixel-ratio:2)"
+          href="./splash-1536x2048.png">
+    <link rel="apple-touch-startup-image"
+          media="(device-width:834px)  and (device-height:1112px) and (-webkit-device-pixel-ratio:2)"
+          href="./splash-1668x2224.png">
+    <link rel="apple-touch-startup-image"
+          media="(device-width:1024px) and (device-height:1366px) and (-webkit-device-pixel-ratio:2)"
+          href="./splash-2048x2732.png">
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="./github-sync.js"></script>
+    <style>
+        /* ─── CSS custom properties ────────────────────────────────── */
+        :root {
+            --accent:    #667eea;
+            --accent2:   #764ba2;
+            --danger:    #ef4444;
+            --success:   #10b981;
+            --bg:        #f4f6fb;
+            --surface:   #ffffff;
+            --border:    #e2e8f0;
+            --text:      #1e293b;
+            --muted:     #64748b;
+            --radius:    14px;
+            --safe-top:  env(safe-area-inset-top,    0px);
+            --safe-bot:  env(safe-area-inset-bottom, 0px);
+            --safe-l:    env(safe-area-inset-left,   0px);
+            --safe-r:    env(safe-area-inset-right,  0px);
+        }
+
+        /* ─── Reset & base ─────────────────────────────────────────── */
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        html { height: 100%; }
+
+        body {
+            font-family: -apple-system, 'SF Pro Display', 'SF Pro Text',
+                         BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: var(--bg);
+            min-height: 100%;
+            /* respect notch / home-bar on Face-ID iPads */
+            padding:
+                calc(var(--safe-top) + 20px)
+                calc(var(--safe-r)   + 16px)
+                calc(var(--safe-bot) + 20px)
+                calc(var(--safe-l)   + 16px);
+            /* fluid font scaling */
+            font-size: clamp(14px, 1.6vw, 17px);
+            color: var(--text);
+            -webkit-text-size-adjust: 100%;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        /* ─── Container ────────────────────────────────────────────── */
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: var(--surface);
+            border-radius: var(--radius);
+            box-shadow: 0 8px 40px rgba(0,0,0,.12);
+            padding: 28px 32px;
+        }
+
+        h1 {
+            font-size: clamp(1.6em, 3vw, 2.2em);
+            font-weight: 800;
+            letter-spacing: -0.5px;
+            color: var(--accent);
+            margin-bottom: 6px;
+        }
+        .subtitle { color: var(--danger); font-weight: 700; font-size: .95em; margin-bottom: 22px; }
+
+        /* ─── Debug bar ────────────────────────────────────────────── */
+        .debug-info {
+            background: #fef3c7; border: 2px solid #f59e0b;
+            border-radius: 10px; padding: 12px 16px;
+            margin-bottom: 18px; font-size: .82em;
+        }
+        .debug-info strong { color: #92400e; }
+
+        /* ─── Sync Panel ────────────────────────────────────────────── */
+        .sync-panel {
+            background: #f0f9ff; border: 2px solid #0ea5e9;
+            border-radius: 10px; padding: 14px 18px;
+            margin-bottom: 18px; font-size: .88em;
+        }
+        .sync-header {
+            display: flex; justify-content: space-between;
+            align-items: center; gap: 12px;
+        }
+        .sync-btn {
+            padding: 6px 14px; background: #0ea5e9; color: white;
+            border: none; border-radius: 6px; font-size: 0.9em;
+            font-weight: 600; cursor: pointer; transition: opacity .2s;
+            min-height: 36px;
+        }
+        .sync-btn:active { opacity: 0.8; }
+        .sync-setup {
+            margin-top: 12px; padding-top: 12px;
+            border-top: 1px solid rgba(14, 165, 233, 0.2);
+        }
+
+
+        /* ─── Notes section ────────────────────────────────────────── */
+        .notes-section {
+            background: #f0fdf4; border: 2px solid var(--success);
+            border-radius: var(--radius); padding: 18px;
+            margin-bottom: 18px;
+        }
+        .notes-title { font-size: 1.05em; font-weight: 700; color: #047857; margin-bottom: 6px; }
+        .notes-subtitle { font-size: .82em; color: #059669; margin-bottom: 8px; }
+        #weekNotes {
+            width: 100%; min-height: 72px;
+            padding: 12px; border: 2px solid var(--success);
+            border-radius: 10px; font-size: .95em;
+            font-family: inherit; resize: vertical;
+            /* Bigger touch target for iPad */
+            line-height: 1.5;
+        }
+        #weekNotes:focus { outline: none; border-color: #047857; background: #fff; }
+
+        /* ─── Controls toolbar ─────────────────────────────────────── */
+        .controls {
+            display: flex; gap: 12px; margin-bottom: 22px;
+            flex-wrap: wrap; align-items: center;
+        }
+        .view-tabs {
+            display: flex; gap: 6px; background: var(--bg);
+            padding: 5px; border-radius: 12px;
+        }
+        .view-tab {
+            padding: 10px 22px; background: transparent;
+            border: none; border-radius: 10px;
+            font-size: .92em; font-weight: 700; color: var(--muted);
+            cursor: pointer; transition: all .2s;
+            /* larger tap target */
+            min-height: 44px;
+        }
+        .view-tab.active {
+            background: var(--surface); color: var(--accent);
+            box-shadow: 0 2px 10px rgba(0,0,0,.1);
+        }
+        .nav-controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+        .nav-btn {
+            padding: 10px 18px; background: var(--accent); color: #fff;
+            border: none; border-radius: 10px;
+            cursor: pointer; font-weight: 700; font-size: .88em;
+            min-height: 44px; /* iOS HIG tap target */
+            transition: opacity .15s;
+        }
+        .nav-btn:active { opacity: .75; }
+        .nav-btn.danger  { background: var(--danger); }
+        .nav-btn.success { background: var(--success); }
+
+        .current-date {
+            font-weight: 700; color: var(--text);
+            padding: 10px 16px; background: var(--bg);
+            border-radius: 10px; font-size: .9em;
+        }
+        .week-number {
+            font-weight: 700; color: var(--accent);
+            padding: 10px 16px; background: #e0e7ff;
+            border-radius: 10px; font-size: .88em;
+        }
+
+        /* ─── Stats bar ────────────────────────────────────────────── */
+        .stats-bar {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+            gap: 10px; margin-bottom: 22px;
+        }
+        .stat-card {
+            padding: 14px 10px; border-radius: 12px;
+            text-align: center; color: #fff;
+        }
+        .stat-value { font-size: 1.6em; font-weight: 800; margin-bottom: 3px; }
+        .stat-label { font-size: .78em; opacity: .9; }
+
+        /* ─── Main layout: wider calendar on iPad ──────────────────── */
+        .main-content {
+            display: grid;
+            grid-template-columns: 1fr 320px;
+            gap: 22px;
+        }
+        @media (max-width: 900px) {
+            .main-content { grid-template-columns: 1fr; }
+        }
+
+        /* ─── Calendar view ────────────────────────────────────────── */
+        .calendar-view {
+            background: var(--bg); border-radius: var(--radius);
+            padding: 18px; min-height: 560px;
+            overflow-x: auto; /* let week-grid scroll horizontally on smaller iPads */
+        }
+
+        /* Day timeline */
+        .timeline-hours { display: flex; flex-direction: column; }
+        .timeline-hour {
+            display: flex; border-bottom: 1px solid var(--border);
+            position: relative; height: 64px; /* slightly taller on iPad */
+        }
+        .hour-label {
+            width: 64px; font-size: .84em; color: var(--muted);
+            padding-top: 5px; font-weight: 700; flex-shrink: 0;
+        }
+        .hour-content { flex: 1; position: relative; }
+        .timeline-event {
+            position: absolute; left: 0; right: 8px;
+            border-radius: 8px; padding: 8px 10px;
+            font-size: .84em; font-weight: 700; color: #fff;
+            cursor: pointer; overflow: hidden;
+            box-shadow: 0 2px 6px rgba(0,0,0,.15);
+            transition: transform .2s, box-shadow .2s, opacity .2s;
+            /* Prevent text selection on long press */
+            -webkit-user-select: none;
+            user-select: none;
+            /* Prevent callout on long press */
+            -webkit-touch-callout: none;
+        }
+        .timeline-event:active { 
+            transform: scale(0.98); 
+            opacity: 0.9;
+            box-shadow: 0 4px 12px rgba(0,0,0,.25);
+        }
+        /* Visual indicator for swipeable */
+        .timeline-event::before {
+            content: '⟨⟨';
+            position: absolute;
+            right: 8px;
+            top: 50%;
+            transform: translateY(-50%);
+            opacity: 0.3;
+            font-size: 0.8em;
+            pointer-events: none;
+        }
+        .event-time  { font-size: .73em; opacity: .9; margin-top: 2px; }
+        .event-notes { font-size: .69em; opacity: .85; margin-top: 3px; font-style: italic;
+                        overflow: hidden; text-overflow: ellipsis; display: -webkit-box;
+                        -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+
+        /* Week grid */
+        .week-grid {
+            display: grid; grid-template-columns: 64px repeat(7, 1fr);
+            gap: 1px; background: var(--border); border-radius: 12px; overflow: hidden;
+            min-width: 560px; /* ensures horizontal scrollability */
+        }
+        .week-header {
+            background: var(--accent); color: #fff;
+            padding: 14px 6px; text-align: center; font-weight: 700; font-size: .88em;
+        }
+        .week-time-label {
+            background: var(--surface); padding: 8px;
+            font-size: .73em; color: var(--muted);
+            display: flex; align-items: center; justify-content: center; font-weight: 700;
+        }
+        .week-cell { background: var(--surface); min-height: 52px; padding: 4px; }
+        .week-event {
+            color: #fff; padding: 4px 6px; margin: 2px 0;
+            border-radius: 5px; font-size: .73em; font-weight: 700;
+            cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+            transition: transform .15s, opacity .15s;
+            -webkit-user-select: none;
+            user-select: none;
+            -webkit-touch-callout: none;
+        }
+        .week-event:active {
+            transform: scale(0.96);
+            opacity: 0.85;
+        }
+
+        /* Month grid */
+        .month-grid {
+            display: grid; grid-template-columns: 64px repeat(7, 1fr);
+            gap: 1px; background: var(--border); border-radius: 12px; overflow: hidden;
+        }
+        .month-day-header {
+            background: var(--accent); color: #fff;
+            padding: 10px; text-align: center; font-weight: 700; font-size: .88em;
+        }
+        .week-number-cell {
+            background: #e0e7ff; color: #4338ca;
+            padding: 10px; text-align: center; font-weight: 800; font-size: .84em;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .month-day { background: var(--surface); min-height: 90px; padding: 8px; }
+        .month-day.other-month { background: #f9fafb; color: var(--muted); }
+        .month-day.today { background: #fef3c7; }
+        .day-number { font-weight: 700; margin-bottom: 5px; }
+        .month-event {
+            padding: 3px 6px; margin: 2px 0; border-radius: 5px;
+            font-size: .68em; font-weight: 700; color: #fff;
+            cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+            transition: transform .15s, opacity .15s;
+            -webkit-user-select: none;
+            user-select: none;
+            -webkit-touch-callout: none;
+        }
+        .month-event:active {
+            transform: scale(0.96);
+            opacity: 0.85;
+        }
+
+        /* ─── Sidebar ───────────────────────────────────────────────── */
+        .sidebar { display: flex; flex-direction: column; gap: 18px; }
+        .add-event-form { background: var(--bg); border-radius: var(--radius); padding: 18px; }
+        .form-title { font-size: 1.1em; font-weight: 700; color: var(--text); margin-bottom: 14px; }
+        .form-group { margin-bottom: 12px; }
+        .form-label { display: block; font-size: .84em; font-weight: 700; color: #475569; margin-bottom: 5px; }
+
+        input, select, textarea {
+            width: 100%; padding: 12px;
+            border: 2px solid var(--border); border-radius: 10px;
+            font-size: .9em; font-family: inherit;
+            /* iOS: prevent auto-zoom on focus */
+            font-size: 16px;
+            transition: border-color .2s;
+        }
+        input:focus, select:focus, textarea:focus {
+            outline: none; border-color: var(--accent);
+        }
+        textarea { resize: vertical; min-height: 60px; }
+        .time-inputs { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+        .btn {
+            background: linear-gradient(135deg, var(--accent), var(--accent2));
+            color: #fff; border: none; padding: 14px;
+            border-radius: 10px; font-size: .95em; font-weight: 700;
+            cursor: pointer; width: 100%; min-height: 50px;
+            transition: opacity .15s;
+        }
+        .btn:active { opacity: .8; }
+
+        /* Legend */
+        .legend { background: var(--bg); border-radius: var(--radius); padding: 18px; }
+        .legend-title { font-size: .95em; font-weight: 700; color: var(--text); margin-bottom: 12px; }
+        .legend-item { display: flex; align-items: center; gap: 10px; margin-bottom: 9px; font-size: .85em; }
+        .legend-color {
+            width: 32px; height: 22px; border-radius: 5px; cursor: pointer;
+            border: 2px solid transparent; transition: border-color .2s;
+        }
+        .legend-color:hover { border-color: var(--accent); }
+
+        /* Empty state */
+        .empty-state { text-align: center; padding: 60px 20px; color: var(--muted); }
+
+        /* ─── Modals ────────────────────────────────────────────────── */
+        .overlay {
+            position: fixed; inset: 0;
+            background: rgba(0,0,0,.5); z-index: 999; display: none;
+        }
+        .overlay.active { display: block; }
+
+        .color-picker-popup, .event-modal {
+            position: fixed; top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            background: var(--surface); border-radius: 18px;
+            box-shadow: 0 24px 80px rgba(0,0,0,.3);
+            z-index: 1000; display: none;
+        }
+        .color-picker-popup { padding: 24px; max-width: 520px; width: 90%; }
+        .color-picker-popup.active { display: block; }
+        .color-picker-title { font-size: 1.05em; font-weight: 700; margin-bottom: 14px; }
+        .color-grid { display: grid; grid-template-columns: repeat(8,1fr); gap: 10px; margin-bottom: 14px; }
+        .color-option {
+            width: 46px; height: 46px; border-radius: 9px;
+            cursor: pointer; border: 3px solid transparent; transition: all .2s;
+        }
+        .color-option:hover { transform: scale(1.12); border-color: var(--accent); }
+
+        .event-modal { 
+            padding: 28px; max-width: 500px; width: 90%; 
+            /* Add safe area for iPads with notch */
+            max-height: calc(100vh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 40px);
+            overflow-y: auto;
+        }
+        .event-modal.active { display: block; }
+        /* Improved close button */
+        .modal-close-btn {
+            position: absolute;
+            top: 16px;
+            right: 16px;
+            width: 36px;
+            height: 36px;
+            border-radius: 18px;
+            background: rgba(0,0,0,0.1);
+            border: none;
+            font-size: 24px;
+            line-height: 1;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background .2s;
+        }
+        .modal-close-btn:active {
+            background: rgba(0,0,0,0.2);
+        }
+        .modal-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 18px; }
+        .modal-title { font-size: 1.25em; font-weight: 700; color: var(--text); flex: 1; }
+        .modal-type  { padding: 6px 12px; border-radius: 7px; font-size: .8em; font-weight: 700; color: #fff; }
+        .modal-content { margin-bottom: 18px; }
+        .modal-field { margin-bottom: 14px; }
+        .modal-label { font-size: .83em; font-weight: 700; color: var(--muted); margin-bottom: 4px; }
+        .modal-value { font-size: .97em; color: var(--text); }
+        .modal-actions { display: flex; gap: 10px; }
+        .btn-secondary { background: var(--muted); }
+        .btn-danger    { background: var(--danger); }
+
+        /* ─── iPad-specific overrides ───────────────────────────────── */
+        @media (min-width: 768px) and (max-width: 1366px) {
+            body { padding-top: calc(var(--safe-top) + 24px); }
+            .week-grid { min-width: unset; } /* grid fits on iPad natively */
+        }
+        /* Landscape on iPad: expand calendar */
+        @media (orientation: landscape) and (min-width: 900px) {
+            .main-content { grid-template-columns: 1fr 300px; }
+        }
+        
+    </style>
+</head>
+<body>
+    <div class="overlay" id="overlay"></div>
+    
+    <div class="color-picker-popup" id="colorPicker">
+        <div class="color-picker-title">Choose color for <span id="colorPickerType"></span></div>
+        <div class="color-grid" id="colorGrid"></div>
+        <button class="btn" onclick="closeColorPicker()">Close</button>
+    </div>
+    
+    <div class="event-modal" id="eventModal">
+        <button class="modal-close-btn" onclick="closeEventModal()">×</button>
+        <div class="modal-header">
+            <div class="modal-title" id="modalTitle"></div>
+            <div class="modal-type" id="modalType"></div>
+        </div>
+        <div class="modal-content">
+            <div class="modal-field">
+                <div class="modal-label">Date & Time</div>
+                <div class="modal-value" id="modalDateTime"></div>
+            </div>
+            <div class="modal-field" id="modalNotesField" style="display: none;">
+                <div class="modal-label">Notes</div>
+                <div class="modal-value" id="modalNotes"></div>
+            </div>
+        </div>
+        <div class="modal-actions">
+            <button class="btn btn-secondary" onclick="closeEventModal()" style="flex: 1;">Close</button>
+            <button class="btn btn-danger" onclick="confirmDeleteEvent()" style="flex: 1;">Delete Event</button>
+        </div>
+    </div>
+    
+    <div class="container">
+        <h1>⏱️ Time Tracker</h1>
+        <p class="subtitle">Your time is limited, don't fuck it up!!</p>
+        
+        <div class="debug-info" id="debugInfo">
+            <strong>Status:</strong> <span id="statusText">Initializing...</span> | 
+            <strong>Events Loaded:</strong> <span id="eventCount">0</span> | 
+            <strong>Storage:</strong> <span id="storageStatus">Checking...</span>
+        </div>
+        
+        <div class="sync-panel" id="syncPanel">
+            <div class="sync-header">
+                <div>
+                    <strong>☁️ GitHub Sync:</strong> <span id="syncStatus" style="color: #64748b;">Not configured</span>
+                </div>
+                <button class="sync-btn" id="syncSetupBtn" onclick="toggleSyncSetup()">⚙️ Setup</button>
+            </div>
+            <div class="sync-setup" id="syncSetup" style="display: none;">
+                <div style="margin: 12px 0 8px 0; font-size: 0.9em;">
+                    <strong>Step 1:</strong> Get GitHub Token
+                    <a href="https://github.com/settings/tokens/new?description=Time%20Tracker%20Sync&scopes=gist" 
+                       target="_blank" 
+                       style="color: #667eea; text-decoration: underline;">
+                        → Create Token
+                    </a>
+                    <br><small style="opacity: 0.8;">Select "gist" permission, then click "Generate token"</small>
+                </div>
+                <div style="margin: 8px 0;">
+                    <strong>Step 2:</strong> Paste Token Here
+                    <input type="password" 
+                           id="githubToken" 
+                           placeholder="ghp_xxxxxxxxxxxx" 
+                           style="width: 100%; margin-top: 4px; font-family: monospace; font-size: 14px;">
+                </div>
+                <div style="display: flex; gap: 8px; margin-top: 12px;">
+                    <button class="btn" onclick="setupSync()" style="flex: 1; padding: 10px;">Connect GitHub</button>
+                    <button class="btn btn-secondary" onclick="toggleSyncSetup()" style="flex: 1; padding: 10px;">Cancel</button>
+                </div>
+                <div style="margin-top: 8px;">
+                    <button class="btn btn-danger" onclick="disconnectSync()" style="width: 100%; padding: 8px; font-size: 0.85em;">
+                        Disconnect Sync
+                    </button>
+                </div>
+            </div>
+            <div class="sync-actions" id="syncActions" style="display: none; margin-top: 8px; display: flex; gap: 8px;">
+                <button class="sync-btn" onclick="manualSync()" id="syncNowBtn" style="flex: 1;">
+                    ⬆️ Sync Now
+                </button>
+                <button class="sync-btn" onclick="pullFromGitHub()" style="flex: 1;">
+                    ⬇️ Pull from GitHub
+                </button>
+            </div>
+            <div id="syncLastTime" style="font-size: 0.8em; color: #64748b; margin-top: 6px;"></div>
+        </div>
+        
+        <div class="notes-section">
+            <div class="notes-title">
+                📝 Anteckning (Week Notes)
+            </div>
+            <div class="notes-subtitle">Notes for <span id="notesWeekDisplay"></span> - Auto-saves</div>
+            <textarea id="weekNotes" placeholder="Write your notes for this week here..."></textarea>
+        </div>
+        
+        <div class="controls">
+            <div class="view-tabs">
+                <button class="view-tab active" data-view="day">Day</button>
+                <button class="view-tab" data-view="week">Week</button>
+                <button class="view-tab" data-view="month">Month</button>
+            </div>
+            
+            <div class="nav-controls">
+                <button class="nav-btn" id="prevBtn">◄</button>
+                <span class="current-date" id="currentDate"></span>
+                <span class="week-number" id="weekNumber"></span>
+                <button class="nav-btn" id="nextBtn">►</button>
+                <button class="nav-btn" id="todayBtn">Today</button>
+                <button class="nav-btn success" id="exportPdfBtn" title="Export current week as PDF (timeline format like tracker)">📄 Export Week PDF</button>
+                <button class="nav-btn danger" id="deleteOldBtn" title="Delete events older than 4 weeks">🗑️ Delete Old Events</button>
+            </div>
+        </div>
+        
+        <div class="stats-bar" id="statsBar"></div>
+        
+        <div class="main-content">
+            <div class="calendar-view" id="calendarView"></div>
+            
+            <div class="sidebar">
+                <div class="add-event-form">
+                    <div class="form-title">➕ Add Event</div>
+                    <form id="eventForm">
+                        <div class="form-group">
+                            <label class="form-label">Title</label>
+                            <input type="text" id="title" required>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label class="form-label">Type</label>
+                            <select id="type" required>
+                                <option value="">Select type...</option>
+                                <option value="föreläsning">📚 Föreläsning</option>
+                                <option value="övning">✏️ Övning</option>
+                                <option value="laboration">🔬 Laboration</option>
+                                <option value="study">📖 Study Session</option>
+                                <option value="sport">⚽ Sport</option>
+                                <option value="hushåll">🏠 Hushåll</option>
+                                <option value="social">👥 Social</option>
+                                <option value="meal">🍽️ Meal</option>
+                                <option value="work">💼 Work</option>
+                                <option value="free">🎮 Free Time</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label class="form-label">Date</label>
+                            <input type="date" id="date" required>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label class="form-label">Time (6:00 - 23:30)</label>
+                            <div class="time-inputs">
+                                <input type="time" id="startTime" min="06:00" max="23:30" required>
+                                <input type="time" id="endTime" min="06:00" max="23:30" required>
+                            </div>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label class="form-label">Notes (optional)</label>
+                            <textarea id="notes" placeholder="Location, description, etc."></textarea>
+                        </div>
+                        
+                        <button type="submit" class="btn">Add Event</button>
+                    </form>
+                </div>
+                
+                <div class="legend">
+                    <div class="legend-title">Event Types (click to change color)</div>
+                    <div class="legend-item">
+                        <div class="legend-color" id="color-föreläsning" data-type="föreläsning"></div>
+                        <span>Föreläsning</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" id="color-övning" data-type="övning"></div>
+                        <span>Övning</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" id="color-laboration" data-type="laboration"></div>
+                        <span>Laboration</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" id="color-study" data-type="study"></div>
+                        <span>Study Session</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" id="color-sport" data-type="sport"></div>
+                        <span>Sport</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" id="color-hushåll" data-type="hushåll"></div>
+                        <span>Hushåll</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" id="color-social" data-type="social"></div>
+                        <span>Social</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" id="color-meal" data-type="meal"></div>
+                        <span>Meal</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" id="color-work" data-type="work"></div>
+                        <span>Work</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" id="color-free" data-type="free"></div>
+                        <span>Free Time</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        let events = [];
+        let weekNotes = {};
+        let currentView = 'day';
+        let currentDate = new Date();
+        let currentColorType = null;
+        let currentEventId = null;
+        let noteSaveTimeout = null;
+        
+        // ── GitHub Sync ──────────────────────────────────────────────
+        let githubSync = null;
+        let autoSyncEnabled = false;
+        
+        function initGitHubSync() {
+            githubSync = new GitHubSync();
+            const savedToken = localStorage.getItem('github_token');
+            if (savedToken) {
+                setupSyncWithToken(savedToken);
+            }
+        }
+        
+        async function setupSyncWithToken(token) {
+            try {
+                const success = await githubSync.init(token);
+                if (success) {
+                    localStorage.setItem('github_token', token);
+                    document.getElementById('syncStatus').textContent = 'Connected ✓';
+                    document.getElementById('syncStatus').style.color = '#10b981';
+                    document.getElementById('syncActions').style.display = 'flex';
+                    document.getElementById('syncSetupBtn').textContent = '⚙️ Settings';
+                    updateSyncTime();
+                    
+                    // Try to pull data on first connect
+                    await pullFromGitHub();
+                } else {
+                    throw new Error('Failed to initialize sync');
+                }
+            } catch (error) {
+                alert('Sync setup failed: ' + error.message);
+                document.getElementById('syncStatus').textContent = 'Error';
+                document.getElementById('syncStatus').style.color = '#ef4444';
+            }
+        }
+        
+        function toggleSyncSetup() {
+            const setup = document.getElementById('syncSetup');
+            setup.style.display = setup.style.display === 'none' ? 'block' : 'none';
+        }
+        
+        async function setupSync() {
+            const token = document.getElementById('githubToken').value.trim();
+            if (!token) {
+                alert('Please enter your GitHub token');
+                return;
+            }
+            
+            document.getElementById('syncStatus').textContent = 'Connecting...';
+            await setupSyncWithToken(token);
+            toggleSyncSetup();
+        }
+        
+        async function manualSync() {
+            if (!githubSync || !githubSync.isConfigured()) {
+                alert('Sync not configured. Please set up GitHub sync first.');
+                return;
+            }
+            
+            const btn = document.getElementById('syncNowBtn');
+            btn.disabled = true;
+            btn.textContent = '⬆️ Syncing...';
+            
+            try {
+                await githubSync.push(events, weekNotes, typeColors);
+                updateSyncTime();
+                btn.textContent = '⬆️ Synced ✓';
+                setTimeout(() => { btn.textContent = '⬆️ Sync Now'; btn.disabled = false; }, 2000);
+            } catch (error) {
+                alert('Sync failed: ' + error.message);
+                btn.textContent = '⬆️ Sync Failed';
+                btn.disabled = false;
+            }
+        }
+        
+        async function pullFromGitHub() {
+            if (!githubSync || !githubSync.isConfigured()) {
+                alert('Sync not configured. Please set up GitHub sync first.');
+                return;
+            }
+            
+            try {
+                const data = await githubSync.pull();
+                
+                // Merge or replace data
+                const choice = confirm('Pull data from GitHub?\n\nOK = Replace local data\nCancel = Merge with local data');
+                
+                if (choice) {
+                    // Replace
+                    events = data.events;
+                    weekNotes = data.weekNotes;
+                    typeColors = {...defaultColors, ...data.typeColors};
+                } else {
+                    // Merge
+                    const eventIds = new Set(events.map(e => e.id));
+                    data.events.forEach(e => {
+                        if (!eventIds.has(e.id)) {
+                            events.push(e);
+                        }
+                    });
+                    weekNotes = {...weekNotes, ...data.weekNotes};
+                    typeColors = {...typeColors, ...data.typeColors};
+                }
+                
+                await saveEvents();
+                await saveColors();
+                await saveWeekNotes();
+                renderView();
+                updateStats();
+                updateLegendColors();
+                loadWeekNotes();
+                updateSyncTime();
+                alert('Data pulled from GitHub successfully!');
+            } catch (error) {
+                alert('Pull failed: ' + error.message);
+            }
+        }
+        
+        function disconnectSync() {
+            if (!confirm('Disconnect GitHub sync?\n\nYour data will remain on your device, but won\'t sync anymore.')) {
+                return;
+            }
+            
+            if (githubSync) {
+                githubSync.disconnect();
+            }
+            document.getElementById('syncStatus').textContent = 'Not configured';
+            document.getElementById('syncStatus').style.color = '#64748b';
+            document.getElementById('syncActions').style.display = 'none';
+            document.getElementById('syncSetupBtn').textContent = '⚙️ Setup';
+            document.getElementById('syncLastTime').textContent = '';
+            document.getElementById('githubToken').value = '';
+            toggleSyncSetup();
+        }
+        
+        function updateSyncTime() {
+            if (githubSync && githubSync.isConfigured()) {
+                const status = githubSync.getStatus();
+                document.getElementById('syncLastTime').textContent = 
+                    status.lastSync !== 'Never' ? `Last sync: ${status.lastSync}` : '';
+            }
+        }
+        
+        // Auto-sync wrapper
+        async function saveWithSync() {
+            await saveEvents();
+            if (githubSync && githubSync.isConfigured() && autoSyncEnabled) {
+                try {
+                    await githubSync.push(events, weekNotes, typeColors);
+                    updateSyncTime();
+                } catch (error) {
+                    console.error('Auto-sync failed:', error);
+                }
+            }
+        }
+        
+        // Debug logging
+        function updateDebugInfo(status, message) {
+            document.getElementById('statusText').textContent = status;
+            document.getElementById('eventCount').textContent = events.length;
+            console.log(`[${new Date().toISOString()}] ${status}:`, message || '');
+        }
+        
+        // Get week number (ISO 8601)
+        function getWeekNumber(date) {
+            const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+            const dayNum = d.getUTCDay() || 7;
+            d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+            const yearStart = new Date(Date.UTC(d.getUTCFullYear(),0,1));
+            const weekNo = Math.ceil((((d - yearStart) / 86400000) + 1)/7);
+            return weekNo;
+        }
+        
+        // Get start of week (Monday)
+        function getStartOfWeek(date) {
+            const d = new Date(date);
+            const day = d.getDay();
+            const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+            return new Date(d.setDate(diff));
+        }
+        
+        // Get week key
+        function getWeekKey(date) {
+            const weekNum = getWeekNumber(date);
+            const year = date.getFullYear();
+            return `${year}-W${weekNum}`;
+        }
+        
+        // Update week number display
+        function updateWeekNumber() {
+            const weekNum = getWeekNumber(currentDate);
+            const year = currentDate.getFullYear();
+            document.getElementById('weekNumber').textContent = `Week ${weekNum}, ${year}`;
+            document.getElementById('notesWeekDisplay').textContent = `Week ${weekNum}, ${year}`;
+        }
+        
+        // Load week notes
+        function loadWeekNotes() {
+            const weekKey = getWeekKey(currentDate);
+            const notes = weekNotes[weekKey] || '';
+            document.getElementById('weekNotes').value = notes;
+        }
+        
+        // Save week notes (with debounce)
+        function saveWeekNotes() {
+            clearTimeout(noteSaveTimeout);
+            noteSaveTimeout = setTimeout(async () => {
+                const weekKey = getWeekKey(currentDate);
+                const notes = document.getElementById('weekNotes').value;
+                weekNotes[weekKey] = notes;
+                
+                try {
+                    const dataString = JSON.stringify(weekNotes);
+                    if (typeof window.storage !== 'undefined') {
+                        await window.storage.set('time-tracker-week-notes', dataString);
+                    } else {
+                        localStorageSet('time-tracker-week-notes', dataString);
+                    }
+                    console.log('Week notes saved for', weekKey);
+                } catch (e) {
+                    console.error('Failed to save week notes:', e);
+                }
+            }, 1000);
+        }
+        
+        // Week notes auto-save listener
+        document.getElementById('weekNotes').addEventListener('input', saveWeekNotes);
+        
+        // Export week as PDF - TIMELINE FORMAT EXACTLY LIKE DAY VIEW
+        async function exportWeekAsPDF() {
+            updateDebugInfo('Exporting PDF...', 'Generating Excel-style PDF');
+            
+            try {
+                const { jsPDF } = window.jspdf;
+                // Landscape A4 so we can fit 7 columns nicely
+                const doc = new jsPDF('landscape');
+
+                const pageW = 297; // mm landscape A4
+                const pageH = 210;
+                const margin = 8;
+
+                const startOfWeek = getStartOfWeek(currentDate);
+                const weekNum   = getWeekNumber(currentDate);
+                const year      = currentDate.getFullYear();
+                const weekKey   = getWeekKey(currentDate);
+                const weekNotesText = weekNotes[weekKey] || '';
+
+                // ── Layout constants ──────────────────────────────────────
+                const timeColW  = 14;   // width of the time-label column
+                const gridW     = pageW - margin * 2 - timeColW; // usable width for 7 day columns
+                const dayColW   = gridW / 7;
+                const rowH      = 8;    // height of each hour row
+                const headerH   = 12;   // day-name row height
+                const HOURS     = [];
+                for (let h = 6; h <= 23; h++) HOURS.push(h);
+                const totalGridH = HOURS.length * rowH;
+
+                // ── Title bar ─────────────────────────────────────────────
+                doc.setFillColor(102, 126, 234);
+                doc.rect(0, 0, pageW, 14, 'F');
+                doc.setFontSize(13);
+                doc.setTextColor(255, 255, 255);
+                doc.setFont('helvetica', 'bold');
+                doc.text('Time Tracker', pageW / 2, 6, { align: 'center' });
+                doc.setFontSize(8);
+                doc.setFont('helvetica', 'normal');
+                const endOfWeek = new Date(startOfWeek);
+                endOfWeek.setDate(startOfWeek.getDate() + 6);
+                doc.text(
+                    `Week ${weekNum}, ${year}  |  ${startOfWeek.toLocaleDateString('sv-SE', {month:'short',day:'numeric'})} – ${endOfWeek.toLocaleDateString('sv-SE', {month:'short',day:'numeric',year:'numeric'})}`,
+                    pageW / 2, 11, { align: 'center' }
+                );
+
+                let topY = 16; // Y below title bar
+
+                // ── Week notes (compact strip if present) ─────────────────
+                if (weekNotesText) {
+                    const notesH = 10;
+                    doc.setFillColor(240, 253, 244);
+                    doc.rect(margin, topY, pageW - margin * 2, notesH, 'F');
+                    doc.setDrawColor(16, 185, 129);
+                    doc.setLineWidth(0.4);
+                    doc.rect(margin, topY, pageW - margin * 2, notesH);
+                    doc.setFontSize(7);
+                    doc.setTextColor(4, 120, 87);
+                    doc.setFont('helvetica', 'bold');
+                    doc.text('Anteckning:', margin + 2, topY + 4);
+                    doc.setFont('helvetica', 'normal');
+                    doc.setTextColor(31, 41, 55);
+                    const nl = doc.splitTextToSize(weekNotesText, pageW - margin * 2 - 30);
+                    doc.text(nl[0] + (nl.length > 1 ? ' …' : ''), margin + 26, topY + 4);
+                    topY += notesH + 2;
+                }
+
+                // ── Build day-event maps (keyed by dateStr) ────────────────
+                const dayData = [];
+                for (let i = 0; i < 7; i++) {
+                    const d = new Date(startOfWeek);
+                    d.setDate(startOfWeek.getDate() + i);
+                    const ds = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+                    dayData.push({
+                        date: d,
+                        dateStr: ds,
+                        events: events.filter(e => e.date === ds).sort((a,b) => a.startTime.localeCompare(b.startTime))
+                    });
+                }
+
+                // ── Day-header row (Excel-style frozen header) ─────────────
+                const headerY = topY;
+                // blank top-left cell
+                doc.setFillColor(68, 84, 106);
+                doc.rect(margin, headerY, timeColW, headerH, 'F');
+                doc.setDrawColor(180, 190, 200);
+                doc.setLineWidth(0.3);
+                doc.rect(margin, headerY, timeColW, headerH);
+
+                const dayNames = ['Måndag','Tisdag','Onsdag','Torsdag','Fredag','Lördag','Söndag'];
+                for (let i = 0; i < 7; i++) {
+                    const x = margin + timeColW + i * dayColW;
+                    const d = dayData[i].date;
+                    const isToday = dayData[i].dateStr === new Date().toISOString().split('T')[0];
+
+                    doc.setFillColor(isToday ? 16 : 68, isToday ? 163 : 84, isToday ? 120 : 106);
+                    doc.rect(x, headerY, dayColW, headerH, 'F');
+                    doc.setDrawColor(180, 190, 200);
+                    doc.setLineWidth(0.3);
+                    doc.rect(x, headerY, dayColW, headerH);
+
+                    doc.setFontSize(8);
+                    doc.setTextColor(255, 255, 255);
+                    doc.setFont('helvetica', 'bold');
+                    doc.text(dayNames[i], x + dayColW / 2, headerY + 5, { align: 'center' });
+                    doc.setFontSize(7);
+                    doc.setFont('helvetica', 'normal');
+                    doc.text(d.toLocaleDateString('sv-SE', { day:'numeric', month:'short' }), x + dayColW / 2, headerY + 9.5, { align: 'center' });
+                }
+                topY += headerH;
+
+                // ── Grid rows ──────────────────────────────────────────────
+                // Pre-compute which hours each day's events span (for border suppression)
+                const spannedHours = dayData.map(dd => {
+                    const s = new Set();
+                    dd.events.forEach(ev => {
+                        const sh = parseInt(ev.startTime), eh = parseInt(ev.endTime);
+                        for (let h = sh; h < eh; h++) s.add(h);
+                    });
+                    return s;
+                });
+
+                HOURS.forEach((hour, rowIdx) => {
+                    const rowY = topY + rowIdx * rowH;
+                    const isLastRow = rowIdx === HOURS.length - 1;
+
+                    // Alternating row fill
+                    const rowFill = rowIdx % 2 === 0 ? [255,255,255] : [248,250,252];
+
+                    // ── Time label cell ─────────────────────────────────
+                    doc.setFillColor(241, 245, 249);
+                    doc.rect(margin, rowY, timeColW, rowH, 'F');
+                    doc.setDrawColor(180, 190, 200);
+                    doc.setLineWidth(0.25);
+                    // Draw all 4 sides of time cell
+                    doc.rect(margin, rowY, timeColW, rowH);
+                    doc.setFontSize(6.5);
+                    doc.setTextColor(80, 100, 120);
+                    doc.setFont('helvetica', 'bold');
+                    doc.text(`${hour.toString().padStart(2,'0')}:00`, margin + timeColW / 2, rowY + rowH / 2 + 2, { align: 'center' });
+
+                    // ── Day cells ────────────────────────────────────────
+                    for (let i = 0; i < 7; i++) {
+                        const cellX = margin + timeColW + i * dayColW;
+                        const spanned = spannedHours[i].has(hour);
+
+                        // Cell background
+                        doc.setFillColor(...rowFill);
+                        doc.rect(cellX, rowY, dayColW, rowH, 'F');
+
+                        // Cell borders: always left + right + top; bottom only if not spanned
+                        doc.setDrawColor(200, 210, 220);
+                        doc.setLineWidth(0.2);
+                        doc.line(cellX,          rowY,        cellX,          rowY + rowH); // left
+                        doc.line(cellX + dayColW, rowY,        cellX + dayColW, rowY + rowH); // right
+                        doc.line(cellX,          rowY,        cellX + dayColW, rowY);        // top
+                        if (!spanned || isLastRow) {
+                            doc.line(cellX, rowY + rowH, cellX + dayColW, rowY + rowH); // bottom
+                        }
+                    }
+                });
+
+                // ── Outer border of the whole grid ────────────────────────
+                doc.setDrawColor(100, 120, 150);
+                doc.setLineWidth(0.6);
+                doc.rect(margin, topY, timeColW + gridW, totalGridH);
+
+                // ── Draw events (painted on top of grid) ──────────────────
+                for (let i = 0; i < 7; i++) {
+                    const cellX = margin + timeColW + i * dayColW;
+                    dayData[i].events.forEach(ev => {
+                        const [sh, sm] = ev.startTime.split(':').map(Number);
+                        const [eh, em] = ev.endTime.split(':').map(Number);
+                        if (sh < 6 || sh > 23) return;
+
+                        const startFrac  = (sh - 6) + sm / 60;
+                        const endFrac    = (eh - 6) + em / 60;
+                        const evY        = topY + startFrac * rowH;
+                        const evH        = Math.max((endFrac - startFrac) * rowH, rowH * 0.6);
+
+                        const rgb = hexToRgb(typeColors[ev.type] || '#667eea');
+
+                        // Colored fill
+                        doc.setFillColor(rgb.r, rgb.g, rgb.b);
+                        doc.roundedRect(cellX + 0.8, evY + 0.5, dayColW - 1.6, evH - 1, 1, 1, 'F');
+
+                        // Light inner border
+                        doc.setDrawColor(255, 255, 255);
+                        doc.setLineWidth(0.3);
+                        doc.roundedRect(cellX + 0.8, evY + 0.5, dayColW - 1.6, evH - 1, 1, 1);
+
+                        // White text: title
+                        doc.setTextColor(255, 255, 255);
+                        doc.setFont('helvetica', 'bold');
+                        const textW = dayColW - 3;
+                        const titleLines = doc.splitTextToSize(ev.title, textW);
+                        let textY = evY + 4;
+
+                        doc.setFontSize(6.5);
+                        titleLines.forEach((line, li) => {
+                            if (textY + li * 3.5 < evY + evH - 1) {
+                                doc.text(line, cellX + 1.8, textY + li * 3.5);
+                            }
+                        });
+                        textY += titleLines.length * 3.5;
+
+                        // Time sub-label
+                        if (evH > 6) {
+                            doc.setFont('helvetica', 'normal');
+                            doc.setFontSize(5.5);
+                            if (textY < evY + evH - 1) {
+                                doc.text(`${ev.startTime}–${ev.endTime}`, cellX + 1.8, textY);
+                            }
+                            textY += 3.5;
+                        }
+
+                        // Notes
+                        if (ev.notes && ev.notes.trim() && evH > 12) {
+                            doc.setFontSize(5.2);
+                            const nLines = doc.splitTextToSize(ev.notes, textW);
+                            nLines.forEach((line, li) => {
+                                if (textY + li * 3 < evY + evH - 1) {
+                                    doc.text(line, cellX + 1.8, textY + li * 3);
+                                }
+                            });
+                        }
+                    });
+                }
+
+                // ── Legend strip at bottom ────────────────────────────────
+                const legendY = topY + totalGridH + 4;
+                if (legendY < pageH - 8) {
+                    doc.setFontSize(6);
+                    doc.setFont('helvetica', 'bold');
+                    doc.setTextColor(80, 100, 120);
+                    doc.text('Legend:', margin, legendY + 3);
+                    let lx = margin + 16;
+                    Object.entries(typeColors).forEach(([type, hex]) => {
+                        if (lx > pageW - margin - 30) return;
+                        const rgb = hexToRgb(hex);
+                        doc.setFillColor(rgb.r, rgb.g, rgb.b);
+                        doc.rect(lx, legendY, 4, 4, 'F');
+                        doc.setFont('helvetica', 'normal');
+                        doc.setTextColor(50, 60, 70);
+                        doc.text(type, lx + 5, legendY + 3.3);
+                        lx += doc.getTextWidth(type) + 11;
+                    });
+                }
+
+                doc.save(`Week_${weekNum}_${year}.pdf`);
+                updateDebugInfo('PDF Exported ✓', `Week ${weekNum} Excel-style exported`);
+
+            } catch (e) {
+                console.error('PDF Error:', e);
+                updateDebugInfo('PDF Export Error', e.message);
+                alert('Failed to export PDF: ' + e.message);
+            }
+        }
+        
+        // Helper function to convert hex to RGB
+        function hexToRgb(hex) {
+            const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+            return result ? {
+                r: parseInt(result[1], 16),
+                g: parseInt(result[2], 16),
+                b: parseInt(result[3], 16)
+            } : { r: 102, g: 126, b: 234 };
+        }
+        
+        // Delete old events
+        async function deleteOldEvents() {
+            const fourWeeksAgo = new Date();
+            fourWeeksAgo.setDate(fourWeeksAgo.getDate() - 28);
+            const cutoffDate = fourWeeksAgo.getFullYear() + '-' + String(fourWeeksAgo.getMonth() + 1).padStart(2, '0') + '-' + String(fourWeeksAgo.getDate()).padStart(2, '0');
+            
+            const oldEvents = events.filter(e => e.date < cutoffDate);
+            
+            if (oldEvents.length === 0) {
+                alert('No events older than 4 weeks found.');
+                return;
+            }
+            
+            if (confirm(`Delete ${oldEvents.length} events older than 4 weeks (before ${fourWeeksAgo.toLocaleDateString('sv-SE')})?`)) {
+                events = events.filter(e => e.date >= cutoffDate);
+                const saved = await saveEvents();
+                if (saved) {
+                    renderView();
+                    updateStats();
+                    alert(`${oldEvents.length} old events deleted successfully!`);
+                }
+            }
+        }
+        
+        // Button event listeners
+        document.getElementById('exportPdfBtn').addEventListener('click', exportWeekAsPDF);
+        document.getElementById('deleteOldBtn').addEventListener('click', deleteOldEvents);
+        
+        // Default colors
+        const defaultColors = {
+            'föreläsning': '#3b82f6',
+            'övning': '#8b5cf6',
+            'laboration': '#ec4899',
+            'sport': '#10b981',
+            'hushåll': '#f59e0b',
+            'social': '#ef4444',
+            'study': '#6366f1',
+            'free': '#14b8a6',
+            'work': '#64748b',
+            'meal': '#f97316'
+        };
+        
+        let typeColors = {...defaultColors};
+        
+        // Extended color palette
+        const colorPalette = [
+            '#ef4444', '#dc2626', '#b91c1c', '#991b1b', '#f87171', '#fca5a5', '#fecaca', '#fee2e2',
+            '#f97316', '#ea580c', '#c2410c', '#9a3412', '#fb923c', '#fdba74', '#fed7aa', '#ffedd5',
+            '#f59e0b', '#d97706', '#b45309', '#92400e', '#fbbf24', '#fcd34d', '#fde68a', '#fef3c7',
+            '#eab308', '#ca8a04', '#a16207', '#854d0e', '#facc15', '#fde047', '#fef08a', '#fef9c3',
+            '#84cc16', '#65a30d', '#4d7c0f', '#3f6212', '#a3e635', '#bef264', '#d9f99d', '#ecfccb',
+            '#22c55e', '#16a34a', '#15803d', '#166534', '#4ade80', '#86efac', '#bbf7d0', '#dcfce7',
+            '#10b981', '#059669', '#047857', '#065f46', '#34d399', '#6ee7b7', '#a7f3d0', '#d1fae5',
+            '#14b8a6', '#0d9488', '#0f766e', '#115e59', '#2dd4bf', '#5eead4', '#99f6e4', '#ccfbf1',
+            '#06b6d4', '#0891b2', '#0e7490', '#155e75', '#22d3ee', '#67e8f9', '#a5f3fc', '#cffafe',
+            '#0ea5e9', '#0284c7', '#0369a1', '#075985', '#38bdf8', '#7dd3fc', '#bae6fd', '#e0f2fe',
+            '#3b82f6', '#2563eb', '#1d4ed8', '#1e40af', '#60a5fa', '#93c5fd', '#bfdbfe', '#dbeafe',
+            '#6366f1', '#4f46e5', '#4338ca', '#3730a3', '#818cf8', '#a5b4fc', '#c7d2fe', '#e0e7ff',
+            '#8b5cf6', '#7c3aed', '#6d28d9', '#5b21b6', '#a78bfa', '#c4b5fd', '#ddd6fe', '#ede9fe',
+            '#a855f7', '#9333ea', '#7e22ce', '#6b21a8', '#c084fc', '#d8b4fe', '#e9d5ff', '#f3e8ff',
+            '#d946ef', '#c026d3', '#a21caf', '#86198f', '#e879f9', '#f0abfc', '#f5d0fe', '#fae8ff',
+            '#ec4899', '#db2777', '#be185d', '#9d174d', '#f472b6', '#f9a8d4', '#fbcfe8', '#fce7f3',
+            '#f43f5e', '#e11d48', '#be123c', '#9f1239', '#fb7185', '#fda4af', '#fecdd3', '#ffe4e6',
+            '#64748b', '#475569', '#334155', '#1e293b', '#94a3b8', '#cbd5e1', '#e2e8f0', '#f1f5f9',
+            '#6b7280', '#4b5563', '#374151', '#1f2937', '#9ca3af', '#d1d5db', '#e5e7eb', '#f3f4f6',
+            '#78350f', '#92400e', '#b45309', '#d97706', '#a16207', '#ca8a04', '#eab308', '#facc15',
+            '#000000', '#171717', '#262626', '#404040', '#525252', '#737373', '#a3a3a3', '#d4d4d4'
+        ];
+        
+        // Check if storage is available
+        async function checkStorage() {
+            try {
+                if (typeof window.storage === 'undefined') {
+                    document.getElementById('storageStatus').textContent = 'NOT AVAILABLE (using localStorage fallback)';
+                    updateDebugInfo('Warning', 'window.storage not available, using localStorage');
+                    return false;
+                }
+                document.getElementById('storageStatus').textContent = 'Available ✓';
+                updateDebugInfo('Storage OK', 'window.storage is available');
+                return true;
+            } catch (e) {
+                document.getElementById('storageStatus').textContent = 'ERROR (using localStorage fallback)';
+                updateDebugInfo('Storage Error', e.message);
+                return false;
+            }
+        }
+        
+        // Fallback localStorage functions
+        function localStorageGet(key) {
+            try {
+                const value = localStorage.getItem(key);
+                return value ? { value: value } : null;
+            } catch (e) {
+                console.error('localStorage.getItem error:', e);
+                return null;
+            }
+        }
+        
+        function localStorageSet(key, value) {
+            try {
+                localStorage.setItem(key, value);
+                return { key: key, value: value };
+            } catch (e) {
+                console.error('localStorage.setItem error:', e);
+                return null;
+            }
+        }
+        
+        // Load data with fallback
+        async function loadData() {
+            updateDebugInfo('Loading...', 'Starting data load');
+            
+            const hasStorage = await checkStorage();
+            
+            try {
+                let eventsResult, colorsResult, notesResult;
+                
+                if (hasStorage) {
+                    eventsResult = await window.storage.get('time-tracker-events');
+                    colorsResult = await window.storage.get('time-tracker-colors');
+                    notesResult = await window.storage.get('time-tracker-week-notes');
+                } else {
+                    eventsResult = localStorageGet('time-tracker-events');
+                    colorsResult = localStorageGet('time-tracker-colors');
+                    notesResult = localStorageGet('time-tracker-week-notes');
+                }
+                
+                if (eventsResult && eventsResult.value) {
+                    events = JSON.parse(eventsResult.value);
+                    updateDebugInfo('Loaded', `${events.length} events loaded successfully`);
+                } else {
+                    updateDebugInfo('Ready', 'No existing events found');
+                }
+                
+                if (colorsResult && colorsResult.value) {
+                    typeColors = {...defaultColors, ...JSON.parse(colorsResult.value)};
+                }
+                
+                if (notesResult && notesResult.value) {
+                    weekNotes = JSON.parse(notesResult.value);
+                }
+                
+                updateLegendColors();
+                renderView();
+                updateStats();
+                updateWeekNumber();
+                loadWeekNotes();
+            } catch (e) {
+                updateDebugInfo('Error Loading', e.message);
+                console.error('Load error:', e);
+            }
+        }
+        
+        // Save events with fallback
+        async function saveEvents() {
+            updateDebugInfo('Saving...', `Attempting to save ${events.length} events`);
+            
+            try {
+                const dataString = JSON.stringify(events);
+                let result;
+                
+                if (typeof window.storage !== 'undefined') {
+                    result = await window.storage.set('time-tracker-events', dataString);
+                } else {
+                    result = localStorageSet('time-tracker-events', dataString);
+                }
+                
+                if (result) {
+                    updateDebugInfo('Saved ✓', `${events.length} events saved successfully`);
+                    return true;
+                } else {
+                    updateDebugInfo('Save Failed', 'Storage returned null');
+                    return false;
+                }
+            } catch (e) {
+                updateDebugInfo('Save Error', e.message);
+                console.error('Save error:', e);
+                alert('Failed to save events: ' + e.message);
+                return false;
+            }
+        }
+        
+        // Save colors
+        async function saveColors() {
+            try {
+                const dataString = JSON.stringify(typeColors);
+                
+                if (typeof window.storage !== 'undefined') {
+                    await window.storage.set('time-tracker-colors', dataString);
+                } else {
+                    localStorageSet('time-tracker-colors', dataString);
+                }
+            } catch (e) {
+                console.error('Failed to save colors:', e);
+            }
+        }
+        
+        // Update legend colors
+        function updateLegendColors() {
+            Object.keys(typeColors).forEach(type => {
+                const element = document.getElementById(`color-${type}`);
+                if (element) {
+                    element.style.backgroundColor = typeColors[type];
+                }
+            });
+        }
+        
+        // Color picker
+        document.querySelectorAll('.legend-color').forEach(elem => {
+            elem.addEventListener('click', function() {
+                currentColorType = this.dataset.type;
+                document.getElementById('colorPickerType').textContent = currentColorType;
+                
+                const grid = document.getElementById('colorGrid');
+                grid.innerHTML = colorPalette.map(color => 
+                    `<div class="color-option" style="background-color: ${color}" onclick="selectColor('${color}')"></div>`
+                ).join('');
+                
+                document.getElementById('overlay').classList.add('active');
+                document.getElementById('colorPicker').classList.add('active');
+            });
+        });
+        
+        function selectColor(color) {
+            if (currentColorType) {
+                typeColors[currentColorType] = color;
+                saveColors();
+                updateLegendColors();
+                renderView();
+                updateStats();
+            }
+            closeColorPicker();
+        }
+        
+        function closeColorPicker() {
+            document.getElementById('overlay').classList.remove('active');
+            document.getElementById('colorPicker').classList.remove('active');
+        }
+        
+        // ─── Touch-optimized event handling for iPad ────────────────
+        let touchStartX = 0;
+        let touchStartY = 0;
+        let touchEndX = 0;
+        let touchEndY = 0;
+        let longPressTimer = null;
+        let currentTouchEventId = null;
+        
+        // Detect swipe gestures
+        function handleSwipe(eventId) {
+            const deltaX = touchEndX - touchStartX;
+            const deltaY = touchEndY - touchStartY;
+            
+            // Horizontal swipe detected (swipe left to delete)
+            if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 50) {
+                if (deltaX < 0) { // Swipe left
+                    showDeleteConfirmation(eventId);
+                }
+            }
+        }
+        
+        // Show touch-friendly delete confirmation
+        function showDeleteConfirmation(eventId) {
+            const event = events.find(e => e.id === eventId);
+            if (!event) return;
+            
+            const confirmed = confirm(`Delete event?\n\n${event.title}\n${event.startTime} - ${event.endTime}`);
+            if (confirmed) {
+                deleteEvent(eventId);
+            }
+        }
+        
+        // Delete event function
+        async function deleteEvent(eventId) {
+            events = events.filter(e => e.id !== eventId);
+            const saved = await saveEvents();
+            if (saved) {
+                renderView();
+                updateStats();
+                closeEventModal();
+            }
+        }
+        
+        // Add touch event listeners to event elements
+        function addTouchListeners(element, eventId) {
+            // Single tap - show details
+            element.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                showEventDetails(eventId);
+            });
+            
+            // Long press - delete menu
+            element.addEventListener('touchstart', (e) => {
+                touchStartX = e.touches[0].clientX;
+                touchStartY = e.touches[0].clientY;
+                currentTouchEventId = eventId;
+                
+                // Start long press timer (500ms)
+                longPressTimer = setTimeout(() => {
+                    // Vibrate if supported
+                    if (navigator.vibrate) {
+                        navigator.vibrate(50);
+                    }
+                    showDeleteConfirmation(eventId);
+                }, 500);
+            }, { passive: true });
+            
+            element.addEventListener('touchmove', (e) => {
+                // Cancel long press if finger moves
+                if (longPressTimer) {
+                    clearTimeout(longPressTimer);
+                    longPressTimer = null;
+                }
+            }, { passive: true });
+            
+            element.addEventListener('touchend', (e) => {
+                touchEndX = e.changedTouches[0].clientX;
+                touchEndY = e.changedTouches[0].clientY;
+                
+                // Clear long press timer
+                if (longPressTimer) {
+                    clearTimeout(longPressTimer);
+                    longPressTimer = null;
+                }
+                
+                // Check for swipe
+                if (currentTouchEventId === eventId) {
+                    handleSwipe(eventId);
+                }
+            }, { passive: true });
+            
+            // Remove right-click handler (not needed on touch devices)
+            element.oncontextmenu = (e) => {
+                e.preventDefault();
+                return false;
+            };
+        }
+        
+        // Event modal functions
+        function showEventDetails(eventId) {
+            const event = events.find(e => e.id === eventId);
+            if (!event) return;
+            
+            currentEventId = eventId;
+            
+            document.getElementById('modalTitle').textContent = event.title;
+            
+            const modalType = document.getElementById('modalType');
+            modalType.textContent = event.type;
+            modalType.style.backgroundColor = typeColors[event.type];
+            
+            const date = new Date(event.date);
+            document.getElementById('modalDateTime').textContent = 
+                `${date.toLocaleDateString('sv-SE', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })} at ${event.startTime} - ${event.endTime}`;
+            
+            const notesField = document.getElementById('modalNotesField');
+            if (event.notes && event.notes.trim()) {
+                document.getElementById('modalNotes').textContent = event.notes;
+                notesField.style.display = 'block';
+            } else {
+                notesField.style.display = 'none';
+            }
+            
+            document.getElementById('overlay').classList.add('active');
+            document.getElementById('eventModal').classList.add('active');
+        }
+        
+        function closeEventModal() {
+            document.getElementById('overlay').classList.remove('active');
+            document.getElementById('eventModal').classList.remove('active');
+            currentEventId = null;
+        }
+        
+        async function confirmDeleteEvent() {
+            if (!currentEventId) return;
+            await deleteEvent(currentEventId);
+        }
+        
+        document.getElementById('overlay').addEventListener('click', function() {
+            closeColorPicker();
+            closeEventModal();
+        });
+        
+        // Add event
+        document.getElementById('eventForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const event = {
+                id: Date.now(),
+                title: document.getElementById('title').value,
+                type: document.getElementById('type').value,
+                date: document.getElementById('date').value,
+                startTime: document.getElementById('startTime').value,
+                endTime: document.getElementById('endTime').value,
+                notes: document.getElementById('notes').value
+            };
+            
+            events.push(event);
+            events.sort((a, b) => {
+                const dateA = new Date(a.date + ' ' + a.startTime);
+                const dateB = new Date(b.date + ' ' + b.startTime);
+                return dateA - dateB;
+            });
+            
+            const saved = await saveEvents();
+            if (saved) {
+                renderView();
+                updateStats();
+                
+                e.target.reset();
+                const today = new Date();
+        const yyyy = today.getFullYear();
+        const mm = String(today.getMonth() + 1).padStart(2, '0');
+        const dd = String(today.getDate()).padStart(2, '0');
+        document.getElementById('date').value = `${yyyy}-${mm}-${dd}`;
+            } else {
+                alert('Warning: Event may not have been saved properly. Please try again.');
+            }
+        });
+        
+        // Update stats
+        function updateStats() {
+            const todayDate = new Date(); const today = todayDate.getFullYear() + '-' + String(todayDate.getMonth() + 1).padStart(2, '0') + '-' + String(todayDate.getDate()).padStart(2, '0');
+            const todayEvents = events.filter(e => e.date === today);
+            
+            const typeStats = {};
+            todayEvents.forEach(e => {
+                typeStats[e.type] = (typeStats[e.type] || 0) + 1;
+            });
+            
+            const statsHtml = Object.entries(typeStats)
+                .map(([type, count]) => `
+                    <div class="stat-card" style="background-color: ${typeColors[type]}">
+                        <div class="stat-value">${count}</div>
+                        <div class="stat-label">${type}</div>
+                    </div>
+                `).join('');
+            
+            document.getElementById('statsBar').innerHTML = statsHtml || 
+                '<div style="grid-column: 1/-1; text-align: center; color: #9ca3af; padding: 20px;">No events today</div>';
+        }
+        
+        // Render Day View (6:00-23:30 only)
+        function renderDayView() {
+            const dateStr = currentDate.getFullYear() + '-' + String(currentDate.getMonth() + 1).padStart(2, '0') + '-' + String(currentDate.getDate()).padStart(2, '0');
+            const dayEvents = events.filter(e => e.date === dateStr);
+            
+            if (dayEvents.length === 0) {
+                document.getElementById('calendarView').innerHTML = '<div class="empty-state"><p>No events scheduled for this day</p></div>';
+                return;
+            }
+            
+            let html = '<div class="timeline-container"><div class="timeline-hours">';
+            
+            for (let hour = 6; hour <= 23; hour++) {
+                const hourStr = hour.toString().padStart(2, '0');
+                html += `
+                    <div class="timeline-hour">
+                        <div class="hour-label">${hourStr}:00</div>
+                        <div class="hour-content" id="hour-${hour}"></div>
+                    </div>
+                `;
+            }
+            
+            html += '</div></div>';
+            document.getElementById('calendarView').innerHTML = html;
+            
+            dayEvents.forEach(event => {
+                const [startHour, startMin] = event.startTime.split(':').map(Number);
+                const [endHour, endMin] = event.endTime.split(':').map(Number);
+                const startMinutes = startHour * 60 + startMin;
+                const endMinutes = endHour * 60 + endMin;
+                const durationMinutes = endMinutes - startMinutes;
+                const topPosition = (startMin / 60) * 64;
+                const height = Math.max((durationMinutes / 60) * 64, 40);
+                
+                const eventEl = document.createElement('div');
+                eventEl.className = 'timeline-event';
+                eventEl.style.backgroundColor = typeColors[event.type];
+                eventEl.style.top = `${topPosition}px`;
+                eventEl.style.height = `${height}px`;
+                eventEl.innerHTML = `
+                    <div style="font-weight:700;">${event.title}</div>
+                    <div class="event-time">${event.startTime} - ${event.endTime}</div>
+                    ${event.notes ? `<div class="event-notes">${event.notes}</div>` : ''}
+                    <div style="font-size: 0.65em; opacity: 0.7; margin-top: 4px;">👆 Tap to view • ✋ Long press to delete</div>
+                `;
+                
+                addTouchListeners(eventEl, event.id);
+                document.getElementById(`hour-${startHour}`).appendChild(eventEl);
+            });
+        }
+        
+        function renderWeekView() {
+            const startOfWeek = getStartOfWeek(currentDate);
+            
+            let html = '<div class="week-grid">';
+            html += '<div class="week-header"></div>';
+            
+            for (let i = 0; i < 7; i++) {
+                const day = new Date(startOfWeek);
+                day.setDate(startOfWeek.getDate() + i);
+                const dayName = day.toLocaleDateString('sv-SE', { weekday: 'short' });
+                const dayNum = day.getDate();
+                html += `<div class="week-header">${dayName} ${dayNum}</div>`;
+            }
+            
+            for (let hour = 6; hour <= 23; hour++) {
+                html += `<div class="week-time-label">${hour}:00</div>`;
+                
+                for (let i = 0; i < 7; i++) {
+                    const day = new Date(startOfWeek);
+                    day.setDate(startOfWeek.getDate() + i);
+                    const dateStr = day.getFullYear() + '-' + String(day.getMonth() + 1).padStart(2, '0') + '-' + String(day.getDate()).padStart(2, '0');
+                    
+                    const hourEvents = events.filter(e => {
+                        if (e.date !== dateStr) return false;
+                        const [eventHour] = e.startTime.split(':').map(Number);
+                        return eventHour === hour;
+                    });
+                    
+                    html += '<div class="week-cell">';
+                    hourEvents.forEach(e => {
+                        html += `<div class="week-event" style="background-color: ${typeColors[e.type]}" 
+                                    onclick="showEventDetails(${e.id})"
+                                    oncontextmenu="handleRightClick(event, ${e.id})"
+                                >${e.title}</div>`;
+                    });
+                    html += '</div>';
+                }
+            }
+            
+            html += '</div>';
+            document.getElementById('calendarView').innerHTML = html;
+        }
+        
+        // Render Month View
+        function renderMonthView() {
+            const year = currentDate.getFullYear();
+            const month = currentDate.getMonth();
+            const firstDay = new Date(year, month, 1);
+            const lastDay = new Date(year, month + 1, 0);
+            const startDay = firstDay.getDay() || 7;
+            
+            let html = '<div class="month-grid">';
+            
+            // Header row
+            html += '<div class="month-day-header">Week</div>';
+            ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].forEach(day => {
+                html += `<div class="month-day-header">${day}</div>`;
+            });
+            
+            // Week number and days
+            let currentWeekStart = new Date(year, month, 1 - (startDay - 1));
+            let weekNum = getWeekNumber(currentWeekStart);
+            
+            html += `<div class="week-number-cell">W${weekNum}</div>`;
+            
+            for (let i = 1; i < startDay; i++) {
+                const prevDate = new Date(year, month, 1 - (startDay - i));
+                html += `<div class="month-day other-month"><div class="day-number">${prevDate.getDate()}</div></div>`;
+            }
+            
+            for (let day = 1; day <= lastDay.getDate(); day++) {
+                // Check if we need a new week row
+                const currentDayOfWeek = new Date(year, month, day).getDay() || 7;
+                if (currentDayOfWeek === 1 && day !== 1) {
+                    weekNum = getWeekNumber(new Date(year, month, day));
+                    html += `<div class="week-number-cell">W${weekNum}</div>`;
+                }
+                
+                const date = new Date(year, month, day);
+                const dateStr = date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0') + '-' + String(date.getDate()).padStart(2, '0');
+                const today = new Date(); const todayStr = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0'); const isToday = dateStr === todayStr;
+                
+                const dayEvents = events.filter(e => e.date === dateStr);
+                
+                html += `<div class="month-day ${isToday ? 'today' : ''}">
+                    <div class="day-number">${day}</div>`;
+                
+                dayEvents.slice(0, 3).forEach(e => {
+                    html += `<div class="month-event" style="background-color: ${typeColors[e.type]}" 
+                                onclick="showEventDetails(${e.id})"
+                                oncontextmenu="handleRightClick(event, ${e.id})"
+                            >${e.title}</div>`;
+                });
+                
+                if (dayEvents.length > 3) {
+                    html += `<div style="font-size: 0.7em; color: #6b7280; margin-top: 4px;">+${dayEvents.length - 3} more</div>`;
+                }
+                
+                html += '</div>';
+            }
+            
+            // Fill remaining days
+            const lastDayOfWeek = lastDay.getDay() || 7;
+            const remainingDays = 7 - lastDayOfWeek;
+            if (remainingDays < 7 && remainingDays > 0) {
+                for (let i = 1; i <= remainingDays; i++) {
+                    html += `<div class="month-day other-month"><div class="day-number">${i}</div></div>`;
+                }
+            }
+            
+            html += '</div>';
+            document.getElementById('calendarView').innerHTML = html;
+        }
+        
+        // Handle right click
+        async function handleRightClick(e, eventId) {
+            e.preventDefault();
+            showDeleteConfirmation(eventId);
+        }
+        
+        // Make functions global for inline handlers
+        window.handleRightClick = handleRightClick;
+        window.showEventDetails = showEventDetails;
+        window.selectColor = selectColor;
+        
+        // Render current view
+        function renderView() {
+            if (currentView === 'day') {
+                renderDayView();
+            } else if (currentView === 'week') {
+                renderWeekView();
+            } else {
+                renderMonthView();
+            }
+            updateDateDisplay();
+            updateWeekNumber();
+            loadWeekNotes();
+        }
+        
+        // Update date display
+        function updateDateDisplay() {
+            let dateText = '';
+            if (currentView === 'day') {
+                dateText = currentDate.toLocaleDateString('sv-SE', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+            } else if (currentView === 'week') {
+                const startOfWeek = getStartOfWeek(currentDate);
+                const endOfWeek = new Date(startOfWeek);
+                endOfWeek.setDate(startOfWeek.getDate() + 6);
+                dateText = `${startOfWeek.toLocaleDateString('sv-SE', { month: 'short', day: 'numeric' })} - ${endOfWeek.toLocaleDateString('sv-SE', { month: 'short', day: 'numeric', year: 'numeric' })}`;
+            } else {
+                dateText = currentDate.toLocaleDateString('sv-SE', { year: 'numeric', month: 'long' });
+            }
+            document.getElementById('currentDate').textContent = dateText;
+        }
+        
+        // View tabs
+        document.querySelectorAll('.view-tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                document.querySelectorAll('.view-tab').forEach(t => t.classList.remove('active'));
+                tab.classList.add('active');
+                currentView = tab.dataset.view;
+                renderView();
+            });
+        });
+        
+        // Navigation
+        document.getElementById('prevBtn').addEventListener('click', () => {
+            if (currentView === 'day') {
+                currentDate.setDate(currentDate.getDate() - 1);
+            } else if (currentView === 'week') {
+                currentDate.setDate(currentDate.getDate() - 7);
+            } else {
+                currentDate.setMonth(currentDate.getMonth() - 1);
+            }
+            renderView();
+        });
+        
+        document.getElementById('nextBtn').addEventListener('click', () => {
+            if (currentView === 'day') {
+                currentDate.setDate(currentDate.getDate() + 1);
+            } else if (currentView === 'week') {
+                currentDate.setDate(currentDate.getDate() + 7);
+            } else {
+                currentDate.setMonth(currentDate.getMonth() + 1);
+            }
+            renderView();
+        });
+        
+        document.getElementById('todayBtn').addEventListener('click', () => {
+            currentDate = new Date();
+            renderView();
+            updateStats();
+        });
+        
+        // Auto-save on page unload
+        window.addEventListener('beforeunload', () => {
+            saveEvents();
+        });
+        
+        // Initialize
+        const today = new Date();
+        const yyyy = today.getFullYear();
+        const mm = String(today.getMonth() + 1).padStart(2, '0');
+        const dd = String(today.getDate()).padStart(2, '0');
+        document.getElementById('date').value = `${yyyy}-${mm}-${dd}`;
+        
+        // Initialize GitHub sync
+        initGitHubSync();
+        
+        // Load data
+        loadData();
+
+        // ── Register service worker (offline support) ──────────────
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./service-worker.js')
+                    .then(r => console.log('SW registered', r))
+                    .catch(e => console.log('SW failed', e));
+            });
+        }
+    </script>
+</body>
+</html>
