@@ -121,7 +121,32 @@
             margin-top: 12px; padding-top: 12px;
             border-top: 1px solid rgba(14, 165, 233, 0.2);
         }
-
+        
+        /* ─── Conflict Resolution Modal ──────────────────────────────── */
+        .conflict-modal {
+            position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            background: white; padding: 24px; border-radius: 16px;
+            box-shadow: 0 24px 80px rgba(0,0,0,0.3);
+            z-index: 1002; display: none; max-width: 500px; width: 90%;
+        }
+        .conflict-modal.active { display: block; }
+        
+        /* ─── Sync Toast Notification ────────────────────────────────── */
+        .sync-toast {
+            position: fixed; bottom: calc(env(safe-area-inset-bottom) + 20px);
+            left: 50%; transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.85); color: white;
+            padding: 12px 20px; border-radius: 8px;
+            font-size: 0.9em; font-weight: 600;
+            z-index: 2000; display: none;
+            backdrop-filter: blur(10px);
+            animation: slideUp 0.3s ease-out;
+        }
+        .sync-toast.show { display: block; }
+        @keyframes slideUp {
+            from { transform: translateX(-50%) translateY(100px); opacity: 0; }
+            to { transform: translateX(-50%) translateY(0); opacity: 1; }
+        }
 
         /* ─── Notes section ────────────────────────────────────────── */
         .notes-section {
@@ -486,7 +511,13 @@
                 <div>
                     <strong>☁️ GitHub Sync:</strong> <span id="syncStatus" style="color: #64748b;">Not configured</span>
                 </div>
-                <button class="sync-btn" id="syncSetupBtn" onclick="toggleSyncSetup()">⚙️ Setup</button>
+                <div style="display: flex; gap: 8px; align-items: center;">
+                    <label style="display: flex; align-items: center; gap: 6px; font-size: 0.9em; cursor: pointer;">
+                        <input type="checkbox" id="autoSyncToggle" onchange="toggleAutoSync()" style="cursor: pointer;">
+                        <span>Auto-sync</span>
+                    </label>
+                    <button class="sync-btn" id="syncSetupBtn" onclick="toggleSyncSetup()">⚙️ Setup</button>
+                </div>
             </div>
             <div class="sync-setup" id="syncSetup" style="display: none;">
                 <div style="margin: 12px 0 8px 0; font-size: 0.9em;">
@@ -509,6 +540,16 @@
                     <button class="btn" onclick="setupSync()" style="flex: 1; padding: 10px;">Connect GitHub</button>
                     <button class="btn btn-secondary" onclick="toggleSyncSetup()" style="flex: 1; padding: 10px;">Cancel</button>
                 </div>
+                <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(14, 165, 233, 0.2);">
+                    <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px; cursor: pointer;">
+                        <input type="checkbox" id="syncNotifications" checked>
+                        <span style="font-size: 0.9em;">Show sync notifications</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                        <input type="checkbox" id="syncOnClose" checked>
+                        <span style="font-size: 0.9em;">Auto-sync when closing app</span>
+                    </label>
+                </div>
                 <div style="margin-top: 8px;">
                     <button class="btn btn-danger" onclick="disconnectSync()" style="width: 100%; padding: 8px; font-size: 0.85em;">
                         Disconnect Sync
@@ -525,6 +566,32 @@
             </div>
             <div id="syncLastTime" style="font-size: 0.8em; color: #64748b; margin-top: 6px;"></div>
         </div>
+        
+        <!-- Conflict Resolution Modal -->
+        <div class="overlay" id="conflictOverlay" style="z-index: 1001;"></div>
+        <div class="conflict-modal" id="conflictModal">
+            <h3 style="margin-bottom: 16px; color: #ef4444;">⚠️ Data Conflict Detected</h3>
+            <p style="margin-bottom: 16px; color: #64748b;">
+                Changes detected on both GitHub and your device. How do you want to resolve this?
+            </p>
+            <div style="display: grid; gap: 12px; margin-bottom: 16px;">
+                <button class="btn" onclick="resolveConflict('github')" style="background: #0ea5e9;">
+                    Use GitHub Data (Discard Local Changes)
+                </button>
+                <button class="btn" onclick="resolveConflict('local')" style="background: #10b981;">
+                    Use Local Data (Overwrite GitHub)
+                </button>
+                <button class="btn" onclick="resolveConflict('merge')" style="background: #8b5cf6;">
+                    Merge Both (Combine All Events)
+                </button>
+            </div>
+            <button class="btn btn-secondary" onclick="closeConflictModal()" style="width: 100%;">
+                Cancel
+            </button>
+        </div>
+        
+        <!-- Sync Notification Toast -->
+        <div class="sync-toast" id="syncToast"></div>
         
         <div class="notes-section">
             <div class="notes-title">
@@ -664,13 +731,64 @@
         // ── GitHub Sync ──────────────────────────────────────────────
         let githubSync = null;
         let autoSyncEnabled = false;
+        let autoSyncInterval = null;
+        let pendingConflictData = null;
         
         function initGitHubSync() {
             githubSync = new GitHubSync();
             const savedToken = localStorage.getItem('github_token');
+            autoSyncEnabled = localStorage.getItem('auto_sync_enabled') === 'true';
+            document.getElementById('autoSyncToggle').checked = autoSyncEnabled;
+            
             if (savedToken) {
                 setupSyncWithToken(savedToken);
             }
+        }
+        
+        function toggleAutoSync() {
+            autoSyncEnabled = document.getElementById('autoSyncToggle').checked;
+            localStorage.setItem('auto_sync_enabled', autoSyncEnabled);
+            
+            if (autoSyncEnabled) {
+                startAutoSync();
+                showToast('✅ Auto-sync enabled (every 3 minutes)');
+            } else {
+                stopAutoSync();
+                showToast('⏸️ Auto-sync disabled');
+            }
+        }
+        
+        function startAutoSync() {
+            if (autoSyncInterval) clearInterval(autoSyncInterval);
+            
+            // Sync every 3 minutes
+            autoSyncInterval = setInterval(async () => {
+                if (githubSync && githubSync.isConfigured()) {
+                    try {
+                        await githubSync.push(events, weekNotes, typeColors);
+                        updateSyncTime();
+                        if (document.getElementById('syncNotifications').checked) {
+                            showToast('☁️ Auto-synced');
+                        }
+                    } catch (error) {
+                        console.error('Auto-sync failed:', error);
+                    }
+                }
+            }, 3 * 60 * 1000); // 3 minutes
+        }
+        
+        function stopAutoSync() {
+            if (autoSyncInterval) {
+                clearInterval(autoSyncInterval);
+                autoSyncInterval = null;
+            }
+        }
+        
+        function showToast(message, duration = 2000) {
+            const toast = document.getElementById('syncToast');
+            toast.textContent = message;
+            toast.classList.add('show');
+            setTimeout(() => toast.classList.remove('show'), duration);
         }
         
         async function setupSyncWithToken(token) {
@@ -684,8 +802,22 @@
                     document.getElementById('syncSetupBtn').textContent = '⚙️ Settings';
                     updateSyncTime();
                     
+                    // Start auto-sync if enabled
+                    if (autoSyncEnabled) {
+                        startAutoSync();
+                    }
+                    
                     // Try to pull data on first connect
-                    await pullFromGitHub();
+                    const remoteData = await githubSync.pull();
+                    if (remoteData.events.length > 0 || Object.keys(remoteData.weekNotes).length > 0) {
+                        // Check for conflicts
+                        if (events.length > 0 || Object.keys(weekNotes).length > 0) {
+                            showConflictModal(remoteData);
+                        } else {
+                            // No local data, safe to use remote
+                            applyRemoteData(remoteData, 'replace');
+                        }
+                    }
                 } else {
                     throw new Error('Failed to initialize sync');
                 }
@@ -727,6 +859,9 @@
                 await githubSync.push(events, weekNotes, typeColors);
                 updateSyncTime();
                 btn.textContent = '⬆️ Synced ✓';
+                if (document.getElementById('syncNotifications').checked) {
+                    showToast('✅ Synced to GitHub');
+                }
                 setTimeout(() => { btn.textContent = '⬆️ Sync Now'; btn.disabled = false; }, 2000);
             } catch (error) {
                 alert('Sync failed: ' + error.message);
@@ -742,40 +877,78 @@
             }
             
             try {
-                const data = await githubSync.pull();
+                const remoteData = await githubSync.pull();
                 
-                // Merge or replace data
-                const choice = confirm('Pull data from GitHub?\n\nOK = Replace local data\nCancel = Merge with local data');
-                
-                if (choice) {
-                    // Replace
-                    events = data.events;
-                    weekNotes = data.weekNotes;
-                    typeColors = {...defaultColors, ...data.typeColors};
+                // Check for conflicts
+                if (events.length > 0 || Object.keys(weekNotes).length > 0) {
+                    showConflictModal(remoteData);
                 } else {
-                    // Merge
-                    const eventIds = new Set(events.map(e => e.id));
-                    data.events.forEach(e => {
-                        if (!eventIds.has(e.id)) {
-                            events.push(e);
-                        }
-                    });
-                    weekNotes = {...weekNotes, ...data.weekNotes};
-                    typeColors = {...typeColors, ...data.typeColors};
+                    applyRemoteData(remoteData, 'replace');
+                    if (document.getElementById('syncNotifications').checked) {
+                        showToast('✅ Data pulled from GitHub');
+                    }
                 }
-                
-                await saveEvents();
-                await saveColors();
-                await saveWeekNotes();
-                renderView();
-                updateStats();
-                updateLegendColors();
-                loadWeekNotes();
-                updateSyncTime();
-                alert('Data pulled from GitHub successfully!');
             } catch (error) {
                 alert('Pull failed: ' + error.message);
             }
+        }
+        
+        function showConflictModal(remoteData) {
+            pendingConflictData = remoteData;
+            document.getElementById('conflictOverlay').classList.add('active');
+            document.getElementById('conflictModal').classList.add('active');
+        }
+        
+        function closeConflictModal() {
+            document.getElementById('conflictOverlay').classList.remove('active');
+            document.getElementById('conflictModal').classList.remove('active');
+            pendingConflictData = null;
+        }
+        
+        async function resolveConflict(strategy) {
+            if (!pendingConflictData) return;
+            
+            await applyRemoteData(pendingConflictData, strategy);
+            closeConflictModal();
+            
+            if (document.getElementById('syncNotifications').checked) {
+                const messages = {
+                    'github': '✅ Using GitHub data',
+                    'local': '✅ Keeping local data',
+                    'merge': '✅ Data merged successfully'
+                };
+                showToast(messages[strategy]);
+            }
+        }
+        
+        async function applyRemoteData(remoteData, strategy) {
+            if (strategy === 'github') {
+                // Replace with GitHub data
+                events = remoteData.events;
+                weekNotes = remoteData.weekNotes;
+                typeColors = {...defaultColors, ...remoteData.typeColors};
+            } else if (strategy === 'local') {
+                // Keep local, push to GitHub
+                await githubSync.push(events, weekNotes, typeColors);
+            } else if (strategy === 'merge') {
+                // Merge data
+                const eventIds = new Set(events.map(e => e.id));
+                remoteData.events.forEach(e => {
+                    if (!eventIds.has(e.id)) {
+                        events.push(e);
+                    }
+                });
+                weekNotes = {...weekNotes, ...remoteData.weekNotes};
+                typeColors = {...typeColors, ...remoteData.typeColors};
+            }
+            
+            await saveEvents();
+            await saveColors();
+            renderView();
+            updateStats();
+            updateLegendColors();
+            loadWeekNotes();
+            updateSyncTime();
         }
         
         function disconnectSync() {
@@ -783,6 +956,7 @@
                 return;
             }
             
+            stopAutoSync();
             if (githubSync) {
                 githubSync.disconnect();
             }
@@ -792,7 +966,11 @@
             document.getElementById('syncSetupBtn').textContent = '⚙️ Setup';
             document.getElementById('syncLastTime').textContent = '';
             document.getElementById('githubToken').value = '';
+            document.getElementById('autoSyncToggle').checked = false;
+            autoSyncEnabled = false;
+            localStorage.setItem('auto_sync_enabled', 'false');
             toggleSyncSetup();
+            showToast('🔌 Sync disconnected');
         }
         
         function updateSyncTime() {
@@ -803,18 +981,16 @@
             }
         }
         
-        // Auto-sync wrapper
-        async function saveWithSync() {
-            await saveEvents();
-            if (githubSync && githubSync.isConfigured() && autoSyncEnabled) {
+        // Sync on page close if enabled
+        window.addEventListener('beforeunload', async (e) => {
+            if (githubSync && githubSync.isConfigured() && document.getElementById('syncOnClose')?.checked) {
                 try {
                     await githubSync.push(events, weekNotes, typeColors);
-                    updateSyncTime();
                 } catch (error) {
-                    console.error('Auto-sync failed:', error);
+                    console.error('Sync on close failed:', error);
                 }
             }
-        }
+        });
         
         // Debug logging
         function updateDebugInfo(status, message) {
